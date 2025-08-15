@@ -1,0 +1,129 @@
+#include <Stepper.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h> 
+//
+//#include <ESP8266HTTPClient.h> // To send HTTP requests for push notifications
+
+const char* ssid = "VRC";         // Replace with your Wi-Fi SSID
+const char* password = "VIIT@Robocon123"; // Replace with your Wi-Fi password
+
+WiFiServer server(80);  // Start the server on port 80
+const int ledPin = D1;  // Define the LED pin
+const int buzzerPin = D2; // Define the buzzer pin
+//define Input pins of the Motor
+#define OUTPUT1   14               // Connected to the Blue coloured wire
+#define OUTPUT2   12                // Connected to the Pink coloured wire
+#define OUTPUT3   13                // Connected to the Yellow coloured wire
+#define OUTPUT4   06               // Connected to the Orange coloured wire
+
+// Define the number of steps per rotation
+const int stepsPerRotation = 2048;  // 28BYJ-48 has 2048 steps per rotation in full step mode as given in data sheet
+
+// Initialize the stepper motor with the sequence of control pins OUTPUT1, OUTPUT3, OUTPUT2, IN4
+// OUTPUT1 and OUTPUT3 are connected to one coil and OUTPUT2 and OUTPUT4 are connected to one Coil
+Stepper myStepper(stepsPerRotation, OUTPUT1, OUTPUT3, OUTPUT2, OUTPUT4);  
+void setup() {
+  // Set the speed of the motor in RPM (adjust as needed)
+   server.begin(115200);
+  pinMode(ledPin, OUTPUT); // Set the LED pin as output
+  pinMode(buzzerPin, OUTPUT); // Set the buzzer pin as output
+  digitalWrite(ledPin, LOW); // Make sure LED is initially off
+  digitalWrite(buzzerPin, LOW); // Make sure buzzer is initially off
+
+  // Connect to Wi-Fi
+  Serial.println();
+  Serial.println("Connecting to Wi-Fi...");
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println();
+  Serial.println("Wi-Fi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+//  server.begin();
+  Serial.println("HTTP server started");
+
+  
+  myStepper.setSpeed(10);  // 15 RPM
+}
+
+void loop() {
+  myStepper.step(stepsPerRotation);  
+  delay(10);  // Delay between rotations
+  // For Rotation in opposite direction provide the variable to the parameter with negative Sign
+  myStepper.step(-stepsPerRotation);  
+  delay(10);  // Delay between rotations
+  // Rotate in One Direction and complete one complete rotation i.e 2048 steps
+   WiFiClient client = server.available(); // Listen for incoming clients
+
+  if (client) {
+    Serial.println("New Client connected");
+    String request = client.readStringUntil('\r');
+    Serial.println(request);
+    client.flush();
+
+    // Parse the request to turn LED and buzzer on or off
+    if (request.indexOf("/LED=ON") != -1) {
+      digitalWrite(ledPin, HIGH); // Turn the LED on
+      digitalWrite(buzzerPin, HIGH); // Turn the buzzer on
+      sendNotification("LED is ON"); // Send a notification
+    } else if (request.indexOf("/LED=OFF") != -1) {
+      digitalWrite(ledPin, LOW); // Turn the LED off
+      digitalWrite(buzzerPin, LOW); // Turn the buzzer off
+      sendNotification("LED is OFF"); // Send a notification
+    }
+
+    // Send HTTP response to the client
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: text/html");
+    client.println("Connection: close");
+    client.println();
+    client.println("<!DOCTYPE HTML>");
+    client.println("<html>");
+    client.println("<h1>ESP8266 LED Control</h1>");
+    client.println("<p>LED is " + String(digitalRead(ledPin) ? "ON" : "OFF") + "</p>");
+    client.println("<p><a href=\"/LED=ON\">Turn ON</a></p>");
+    client.println("<p><a href=\"/LED=OFF\">Turn OFF</a></p>");
+    client.println("</html>");
+
+    delay(1);
+//    Serial.println("Client disconnected");
+//  myStepper.step(stepsPerRotation);  
+//  delay(1000);  // Delay between rotations
+//  // For Rotation in opposite direction provide the variable to the parameter with negative Sign
+//  myStepper.step(-stepsPerRotation);  
+//  delay(1000);  // Delay between rotations
+}
+}
+
+
+// Function to send a push notification// Function to send a push notification
+void sendNotification(const String &message) {
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClient client; // Create a WiFiClient object
+    HTTPClient http;
+    
+    http.begin(client, "https://api.pushbullet.com/v2/pushes"); // Use the new syntax with WiFiClient
+    
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Access-Token", "ODYo2v76IOhId1vjBIkUkvzagzDjhk5C"); // Replace with your access token
+
+    String jsonPayload = "{\"type\": \"note\", \"title\": \"ESP8266 Notification\", \"body\": \"" + message + "\"}";
+    int httpResponseCode = http.POST(jsonPayload);
+
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println("Notification sent successfully");
+    } else {
+      Serial.println("Failed to send notification");
+    }
+    http.end();
+  } else {
+    Serial.println("Wi-Fi not connected");
+  }
+}
